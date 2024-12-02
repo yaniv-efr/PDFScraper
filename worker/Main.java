@@ -38,11 +38,12 @@ public class Main {
                         String[] messageParts = message.body().split(",");
                         String action = messageParts[0];
                         String fileURL = messageParts[1];
-                        String saveDir = "midWork"; // Temporary save directory
+                        String id = messageParts[2];
 
                         // Call the PdfWorker
-                        PdfWorker.work(action, fileURL, saveDir);
-
+                        String sendBack = PdfWorker.work(action, fileURL, id);
+                        //send the message back to the manager
+                        
                         // Delete the message from the queue
                         DeleteMessageRequest deleteRequest = DeleteMessageRequest.builder()
                                 .queueUrl(queueUrl)

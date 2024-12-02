@@ -4,6 +4,8 @@ import java.io.FileOutputStream;
 import java.io.InputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
+import java.util.UUID;
+
 
 import org.apache.pdfbox.pdmodel.PDDocument;
 import org.apache.pdfbox.text.PDFTextStripper;
@@ -21,8 +23,9 @@ import software.amazon.awssdk.services.s3.model.S3Exception;
 
 public class PdfWorker {
 
-    public static void work(String Action, String fileUrl, String saveDir) throws Exception {
+    public static String work(String Action, String fileUrl,String id) throws Exception {
         S3Client s3Client = S3Client.create();
+        String saveDir = UUID.randomUUID().toString();
 
         try {
             // Download the PDF file
@@ -30,7 +33,9 @@ public class PdfWorker {
             HttpURLConnection connection = (HttpURLConnection) url.openConnection();
             connection.setRequestMethod("GET");
             InputStream inputStream = connection.getInputStream();
+
             FileOutputStream fileOutputStream = new FileOutputStream(saveDir + ".pdf");
+
             byte[] buffer = new byte[4096];
             int bytesRead;
             while ((bytesRead = inputStream.read(buffer)) != -1) {
@@ -42,21 +47,21 @@ public class PdfWorker {
             System.out.println("Downloaded PDF file to: " + saveDir + ".pdf");
         } catch (Exception e) {
             e.printStackTrace();
-            return;
+            return "Error downloading PDF file";
         }
 
         File completedFile = null; // To track the generated file for upload
 
         // Perform the specified action on the first page
         switch (Action) {
-            case "toImage":
+            case "ToImage":
                 try {
                     PDDocument document = PDDocument.load(new File(saveDir + ".pdf"));
                     PDFRenderer pdfRenderer = new PDFRenderer(document);
 
                     // Render the first page as an image
                     BufferedImage bim = pdfRenderer.renderImageWithDPI(0, 300, ImageType.RGB);
-                    completedFile = new File(saveDir + "-page-1.png");
+                    completedFile = new File(saveDir + ".png");
                     ImageIO.write(bim, "png", completedFile);
 
                     System.out.println("Saved first page as image: " + completedFile.getAbsolutePath());
@@ -66,7 +71,7 @@ public class PdfWorker {
                 }
                 break;
 
-            case "toText":
+            case "ToText":
                 try {
                     PDDocument document = PDDocument.load(new File(saveDir + ".pdf"));
                     PDFTextStripper textStripper = new PDFTextStripper();
@@ -75,7 +80,7 @@ public class PdfWorker {
 
                     // Extract text from the first page
                     String text = textStripper.getText(document);
-                    completedFile = new File(saveDir + "-page-1.txt");
+                    completedFile = new File(saveDir +".txt");
                     try (FileWriter writer = new FileWriter(completedFile)) {
                         writer.write(text);
                     }
@@ -87,7 +92,7 @@ public class PdfWorker {
                 }
                 break;
 
-            case "toHTML":
+            case "ToHTML":
                 try {
                     PDDocument document = PDDocument.load(new File(saveDir + ".pdf"));
                     PDFTextStripper textStripper = new PDFTextStripper();
@@ -105,7 +110,7 @@ public class PdfWorker {
 
                     htmlContent.append("</div></body></html>");
 
-                    completedFile = new File(saveDir + "-page-1.html");
+                    completedFile = new File(saveDir  +".html");
                     try (FileWriter writer = new FileWriter(completedFile)) {
                         writer.write(htmlContent.toString());
                     }
@@ -119,19 +124,23 @@ public class PdfWorker {
 
             default:
                 System.out.println("Unknown action: " + Action);
-                return;
+                return "Unknown action";
         }
+        //delete the pdf file
+        File pdfFile = new File(saveDir + ".pdf");
+        pdfFile.delete();
+        String result = id + "/" + completedFile.toPath();
 
         // Upload the completed file to S3
         if (completedFile != null && completedFile.exists()) {
             try {
                 PutObjectRequest putRequest = PutObjectRequest.builder()
                         .bucket("resultbucket-aws1")
-                        .key(completedFile.getName())
+                        .key(id + "/" + completedFile.toPath())
                         .build();
-
                 s3Client.putObject(putRequest, completedFile.toPath());
                 System.out.println("Uploaded file to S3: " + completedFile.getName());
+                completedFile.delete();
             } catch (S3Exception e) {
                 System.err.println("S3 Error: " + e.awsErrorDetails().errorMessage());
             } catch (Exception e) {
@@ -143,5 +152,6 @@ public class PdfWorker {
 
         // Close the S3 client
         s3Client.close();
+        return result;
     }
 }
