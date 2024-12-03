@@ -21,6 +21,12 @@ import software.amazon.awssdk.services.sqs.model.SendMessageRequest;
 import software.amazon.awssdk.services.sqs.model.SendMessageResponse;
 import software.amazon.awssdk.services.sqs.model.SqsException;
 import software.amazon.awssdk.services.sqs.model.ReceiveMessageRequest;
+import software.amazon.awssdk.services.s3.model.ListObjectsV2Request;
+import software.amazon.awssdk.services.s3.model.ListObjectsV2Response;
+import software.amazon.awssdk.services.s3.model.S3Object;
+import software.amazon.awssdk.services.s3.model.GetObjectRequest;
+import software.amazon.awssdk.services.s3.model.GetObjectResponse;
+
 
 import com.amazonaws.services.sqs.AmazonSQSVirtualQueuesClientBuilder;
 import com.amazonaws.services.sqs.util.AbstractAmazonSQSClientWrapper;
@@ -30,6 +36,9 @@ import java.util.List;
 import software.amazon.awssdk.services.ec2.model.Instance;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.ArrayList;
+import java.io.FileWriter;
+import java.io.IOException;
 
 public class local {
         private static AWS aws;
@@ -60,7 +69,6 @@ public class local {
                 .instanceIds(instanceId)
                 .build();
         DescribeInstancesResponse response = ec2.describeInstances(request);
-        String fileId = UUID.randomUUID().toString();
 
 
         if (response.reservations().size() > 0) {
@@ -78,20 +86,8 @@ public class local {
             }
         }
         //upload args[0] to s3
-        // Create an S3Client object
-        // Create an S3Client object
-        S3Client s3 = S3Client.builder()
-                .region(Region.US_EAST_1)
-                .build();
-        // Upload a file as a new object with ContentType and title specified
-        String bucket = "tomanager";
-        s3.putObject(PutObjectRequest.builder()
-                .bucket(bucket)
-                .key(fileId)
-                .build(),
-                // Path to the file to upload
-                java.nio.file.Paths.get("one.txt"));
-        System.out.println("Object uploaded");
+        String name = upload(args[0], "tomanager");
+        
         //send message to sqs
         String queueUrl = "https://sqs.us-east-1.amazonaws.com/975050155862/local-manager";
         // Create the SQS client
@@ -112,7 +108,7 @@ public class local {
                 String tempQueueUrl = sqsClient.createQueue(createQueueRequest).queueUrl();
                 System.out.println("Created temporary queue: " + queueUrl);
                 //send message to manager (s3 url of text of pdfs to act on) (n) (url of temporary queue)
-                String message = fileId + " " + "9" + " " + tempQueueUrl;
+                String message = name + " " + args[2] + " " + tempQueueUrl;
                 SendMessageRequest sendMsgRequest = SendMessageRequest.builder()
                         .queueUrl(queueUrl)
                         .messageBody(message)
@@ -123,7 +119,7 @@ public class local {
                 // Receive the message from the temporary queue after waiting for 15 seconds
                 ReceiveMessageRequest receiveRequest = ReceiveMessageRequest.builder()
                         .queueUrl(tempQueueUrl)
-                        .waitTimeSeconds(30)
+                        .waitTimeSeconds(20)
                         .maxNumberOfMessages(1)
                         .build();
                 List<Message> messages = sqsClient.receiveMessage(receiveRequest).messages();
@@ -132,6 +128,22 @@ public class local {
                 } else {
                         System.out.println("No message received from temporary queue");
                 }
+                // find all file in s3 bucket resultbucket-aws1 starting with 1/
+                S3Client s3Client = S3Client.builder()
+                        .region(Region.US_EAST_1)
+                        .build();
+
+                List<String> urls = new ArrayList<>();
+                ListObjectsV2Request listObjectsV2Request = ListObjectsV2Request.builder()
+                        .bucket("resultbucket-aws1")
+                        .prefix("1/")
+                        .build();
+                ListObjectsV2Response listObjectsV2Response = s3Client.listObjectsV2(listObjectsV2Request);
+                for (S3Object object : listObjectsV2Response.contents()) {
+                        urls.add(object.key());
+                }
+                //generate completion html
+                generateCompleteionHTML(urls);
 
 
                 DeleteQueueRequest deleteQueueRequest = DeleteQueueRequest.builder()
@@ -143,6 +155,37 @@ public class local {
         } catch (SqsException e) {
                 System.err.println(e.awsErrorDetails().errorMessage());
                 System.exit(1);
+        }
+    }
+
+    public static String upload(String file , String bucket){
+        String name = UUID.randomUUID().toString();
+        S3Client s3 = S3Client.builder()
+                .region(Region.US_EAST_1)
+                .build();
+        s3.putObject(PutObjectRequest.builder()
+                .bucket(bucket)
+                .key(name)
+                .build(),
+                // Path to the file to upload
+                java.nio.file.Paths.get(file));//////////////////////replace with reading of args
+        System.out.println("Object uploaded");
+        return name;
+    }
+
+    public static void generateCompleteionHTML (List<String> urls){
+        StringBuilder htmlContent = new StringBuilder();
+        htmlContent.append("<!DOCTYPE html><html><head><title>PDF to HTML</title></head><body>");
+        htmlContent.append("<h1>PDF Content - First Page</h1>");
+        htmlContent.append("<div style=\"white-space: pre-wrap;\">");
+        for (String url : urls) {
+            htmlContent.append("<a href=\"" + url + "\">" + url + "</a><br>");
+        }
+        htmlContent.append("</div></body></html>");
+        try (FileWriter writer = new FileWriter("completion.html")) {
+            writer.write(htmlContent.toString());
+        } catch (IOException e) {
+            e.printStackTrace();
         }
     }
 

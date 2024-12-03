@@ -16,8 +16,8 @@ public class Main {
                 .region(Region.US_EAST_1)
                 .build();
 
-        String inQueueUrl = "https://sqs.us-east-1.amazonaws.com/975050155862/manager-worker"; // Replace with your queue URL
-        String outQueueUrl = "https://sqs.us-east-1.amazonaws.com/975050155862/worker-manager"; // Replace with your queue URL
+        String inQueueUrl = "https://sqs.us-east-1.amazonaws.com/975050155862/ManagerToWorkers"; // Replace with your queue URL
+        String outQueueUrl = "https://sqs.us-east-1.amazonaws.com/975050155862/WorkersToManager"; // Replace with your queue URL
         while (true) {
             try {
                 // Receive messages from the queue
