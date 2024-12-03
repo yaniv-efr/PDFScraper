@@ -20,6 +20,7 @@ import software.amazon.awssdk.services.sqs.SqsClient;
 import software.amazon.awssdk.services.sqs.model.SendMessageRequest;
 import software.amazon.awssdk.services.sqs.model.SendMessageResponse;
 import software.amazon.awssdk.services.sqs.model.SqsException;
+import software.amazon.awssdk.services.sqs.model.ReceiveMessageRequest;
 
 import com.amazonaws.services.sqs.AmazonSQSVirtualQueuesClientBuilder;
 import com.amazonaws.services.sqs.util.AbstractAmazonSQSClientWrapper;
@@ -119,12 +120,25 @@ public class local {
                         .build();
                 SendMessageResponse sendMsgResponse = sqsClient.sendMessage(sendMsgRequest);
                 System.out.println("Message sent");
+                // Receive the message from the temporary queue after waiting for 15 seconds
+                ReceiveMessageRequest receiveRequest = ReceiveMessageRequest.builder()
+                        .queueUrl(tempQueueUrl)
+                        .waitTimeSeconds(30)
+                        .maxNumberOfMessages(1)
+                        .build();
+                List<Message> messages = sqsClient.receiveMessage(receiveRequest).messages();
+                if (messages.size() > 0) {
+                        System.out.println("Received message from temporary queue: " + messages.get(0).body());
+                } else {
+                        System.out.println("No message received from temporary queue");
+                }
 
-                // DeleteQueueRequest deleteQueueRequest = DeleteQueueRequest.builder()
-                //         .queueUrl(tempQueueUrl)
-                //         .build();
-                // sqsClient.deleteQueue(deleteQueueRequest);
-                // System.out.println("Deleted temporary queue: " + tempQueueUrl);
+
+                DeleteQueueRequest deleteQueueRequest = DeleteQueueRequest.builder()
+                        .queueUrl(tempQueueUrl)
+                        .build();
+                sqsClient.deleteQueue(deleteQueueRequest);
+                System.out.println("Deleted temporary queue: " + tempQueueUrl);
 
         } catch (SqsException e) {
                 System.err.println(e.awsErrorDetails().errorMessage());
