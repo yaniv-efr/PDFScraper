@@ -28,7 +28,7 @@ public class PdfWorker {
         String saveDir = UUID.randomUUID().toString();
 
         try {
-            // Download the PDF file
+            // Download only the first page of the PDF file
             URL url = new URL(fileUrl);
             HttpURLConnection connection = (HttpURLConnection) url.openConnection();
             connection.setRequestMethod("GET");

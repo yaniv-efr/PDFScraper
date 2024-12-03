@@ -7,6 +7,7 @@ import software.amazon.awssdk.services.sqs.model.ReceiveMessageRequest;
 import software.amazon.awssdk.services.sqs.model.ReceiveMessageResponse;
 import software.amazon.awssdk.services.sqs.model.DeleteMessageRequest;
 import software.amazon.awssdk.services.sqs.model.SqsException;
+import software.amazon.awssdk.services.sqs.model.SendMessageRequest;
 
 public class Main {
     public static void main(String[] args) {
@@ -15,13 +16,13 @@ public class Main {
                 .region(Region.US_EAST_1)
                 .build();
 
-        String queueUrl = "https://sqs.us-east-1.amazonaws.com/975050155862/manager-worker"; // Replace with your queue URL
-
+        String inQueueUrl = "https://sqs.us-east-1.amazonaws.com/975050155862/manager-worker"; // Replace with your queue URL
+        String outQueueUrl = "https://sqs.us-east-1.amazonaws.com/975050155862/worker-manager"; // Replace with your queue URL
         while (true) {
             try {
                 // Receive messages from the queue
                 ReceiveMessageRequest receiveRequest = ReceiveMessageRequest.builder()
-                        .queueUrl(queueUrl)
+                        .queueUrl(inQueueUrl)
                         .maxNumberOfMessages(1)
                         .waitTimeSeconds(10) // Polling wait time for long polling
                         .build();
@@ -46,12 +47,21 @@ public class Main {
                         
                         // Delete the message from the queue
                         DeleteMessageRequest deleteRequest = DeleteMessageRequest.builder()
-                                .queueUrl(queueUrl)
+                                .queueUrl(inQueueUrl)
                                 .receiptHandle(message.receiptHandle())
                                 .build();
                         sqsClient.deleteMessage(deleteRequest);
 
                         System.out.println("Processed and deleted message: " + message.body());
+
+                        // Send the message back to the manager
+
+                        SendMessageRequest sendMsgRequest = SendMessageRequest.builder()
+                                .queueUrl(outQueueUrl)
+                                .messageBody(sendBack + " " + id)
+                                .delaySeconds(5)
+                                .build();
+                        sqsClient.sendMessage(sendMsgRequest);
                     } catch (Exception e) {
                         System.err.println("Error processing message: " + e.getMessage());
                         e.printStackTrace();
