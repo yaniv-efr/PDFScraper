@@ -1,3 +1,4 @@
+package com.manager;
 import API.AWS;
 import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.ec2.model.Instance;
@@ -44,8 +45,6 @@ public class Manager{
     private HashMap<String, Set<String>> taskManagement;
     private HashMap<String, String> returnURls;
     int clientCounter;
-    private final SqsClient tsqs;
-    private final SqsClient vsqs;
     
     public Manager(){
         terminated = false;
@@ -57,20 +56,19 @@ public class Manager{
         taskManagement=new HashMap<>();
         returnURls = new HashMap<>();
         clientCounter=0;
-        tsqs = SqsClient.builder().region(Region.US_EAST_1).build();
-        vsqs = AmazonSQSVirtualQueuesClientBuilder.standard().withAmazonSQS(tsqs).build();
     }
     public void start() {
     	
     	aws.createQueue("ManagerToWorkers");
     	aws.createQueue("WorkersToManager");
-    	String clientsQueueURl = getQueueUrl("placeholder");
+		aws.createQueue("LocaltoManager");
+    	String clientsQueueURl = aws.getQueueUrl("LocaltoManager");
     	String workersQueueURl = aws.getQueueUrl("ManagerToWorkers");
     	String workersResponseQueueURl = aws.getQueueUrl("WorkersToManager");
         while(!terminated){
             if(getQueueSize(clientsQueueURl)>0&&!waitingForTermination){
             	tp.execute(() -> {
-            		List<Message> messageLst = receiveMessage(clientsQueueURl);
+            		List<Message> messageLst = aws.receiveMessage(clientsQueueURl);
             		if(!messageLst.isEmpty()) {
             			Message msg = messageLst.get(0);
             			
@@ -85,7 +83,7 @@ public class Manager{
                     	returnURls.put(sender, returnURL);
                     	File taskFile = new File(sender);
                     	aws.downloadFileFromS3(taskPath, taskFile);
-                    	deleteMessage(clientsQueueURl, msg.receiptHandle());
+                    	aws.deleteMessage(clientsQueueURl, msg.receiptHandle());
                     	int workerTasksCounter=0;
                     	try {
                     		BufferedReader reader = new BufferedReader(new FileReader(taskFile));
@@ -149,7 +147,7 @@ public class Manager{
 									taskManagement.remove(client);
 									aws.uploadFileToS3(client, outputFile);
 									outputFile.delete();
-									sendMessage(returnURls.get(client), client);
+									aws.sendMessage(returnURls.get(client), client);
 								}
 								if(waitingForTermination&&taskManagement.isEmpty()) {
 									terminated=true;
@@ -181,55 +179,4 @@ public class Manager{
         Manager manager = new Manager();
         manager.start();
     }
-    public String getQueueUrl(String queueName) {
-        GetQueueUrlRequest getQueueRequest = GetQueueUrlRequest.builder()
-                .queueName(queueName)
-                .build();
-        String queueUrl = null;
-        queueUrl = vsqs.getQueueUrl(getQueueRequest).queueUrl();
-        System.out.println("Queue URL: " + queueUrl);
-        return queueUrl;
-    }
-
-    public int getQueueSize(String queueUrl) {
-        GetQueueAttributesRequest getQueueAttributesRequest = GetQueueAttributesRequest.builder()
-                .queueUrl(queueUrl)
-                .attributeNames(
-                        QueueAttributeName.APPROXIMATE_NUMBER_OF_MESSAGES,
-                        QueueAttributeName.APPROXIMATE_NUMBER_OF_MESSAGES_NOT_VISIBLE,
-                        QueueAttributeName.APPROXIMATE_NUMBER_OF_MESSAGES_DELAYED
-                )
-                .build();
-
-        GetQueueAttributesResponse queueAttributesResponse = null;
-        queueAttributesResponse = vsqs.getQueueAttributes(getQueueAttributesRequest);
-        Map<QueueAttributeName, String> attributes = queueAttributesResponse.attributes();
-
-        return Integer.parseInt(attributes.get(QueueAttributeName.APPROXIMATE_NUMBER_OF_MESSAGES)) +
-                Integer.parseInt(attributes.get(QueueAttributeName.APPROXIMATE_NUMBER_OF_MESSAGES_NOT_VISIBLE)) +
-                Integer.parseInt(attributes.get(QueueAttributeName.APPROXIMATE_NUMBER_OF_MESSAGES_DELAYED));
-    }
-    public List<Message> receiveMessage(String queueURL) {
-    	ReceiveMessageRequest req = ReceiveMessageRequest.builder()
-    			.queueUrl(queueURL)
-    			.maxNumberOfMessages(1)
-    			.build();
-    	ReceiveMessageResponse res = vsqs.receiveMessage(req);
-    	return res.messages();
-    }
-    public void sendMessage(String queueURL,String msg) {
-    	SendMessageRequest req = SendMessageRequest.builder()
-    			.messageBody(msg)
-    			.queueUrl(queueURL)
-    			.build();
-    	vsqs.sendMessage(req);
-    }
-    public void deleteMessage(String queueURL ,String receiptHandle) {
-    	DeleteMessageRequest req = DeleteMessageRequest.builder()
-    			.queueUrl(queueURL)
-    			.receiptHandle(receiptHandle)
-    			.build();
-    	vsqs.deleteMessage(req);
-    }
-    
 }

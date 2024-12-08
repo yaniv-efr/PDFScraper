@@ -23,7 +23,31 @@ import software.amazon.awssdk.services.s3.model.S3Exception;
 
 public class PdfWorker {
 
+    
+
+        //use httpurlconnection to check if the url returns an error
+        //if it does return an error, return the error message
+        //if it does not return an error, download the pdf file
+        //if the pdf file is downloaded, perform the specified action on the first page
+        //if the action is to convert the pdf to an image, render the first page as an image
+        //if the action is to convert the pdf to text, extract text from the first page
+        //if the action is to convert the pdf to html, extract text and create basic html for the first page
+        //upload the completed file to s3
+        //delete the pdf file
+        //return the result
+        
+
     public static String work(String Action, String fileUrl,String id) throws Exception {
+        HttpURLConnection.setFollowRedirects(false);
+        HttpURLConnection con = (HttpURLConnection) new URL(fileUrl).openConnection();
+        con.setRequestMethod("HEAD");
+        if (con.getResponseCode() == HttpURLConnection.HTTP_OK) {
+            System.out.println("URL is valid and exists");
+        } else {
+            String code = String.valueOf(con.getResponseCode());
+            System.out.println(code);
+            return "Error: " + code;
+        }
         S3Client s3Client = S3Client.create();
         String saveDir = UUID.randomUUID().toString();
 
@@ -49,7 +73,6 @@ public class PdfWorker {
             e.printStackTrace();
             return "Error downloading PDF file";
         }
-
         File completedFile = null; // To track the generated file for upload
 
         // Perform the specified action on the first page
@@ -129,11 +152,11 @@ public class PdfWorker {
         //delete the pdf file
         File pdfFile = new File(saveDir + ".pdf");
         pdfFile.delete();
-        String result = id + "/" + completedFile.toPath();
-
+        String result = "none yet";
         // Upload the completed file to S3
         if (completedFile != null && completedFile.exists()) {
             try {
+                result = id + "/" + completedFile.toPath();
                 PutObjectRequest putRequest = PutObjectRequest.builder()
                         .bucket("resultbucket-aws1")
                         .key(id + "/" + completedFile.toPath())
