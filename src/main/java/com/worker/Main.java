@@ -58,7 +58,7 @@ public class Main {
 
                         SendMessageRequest sendMsgRequest = SendMessageRequest.builder()
                                 .queueUrl(outQueueUrl)
-                                .messageBody(sendBack + " " + id)
+                                .messageBody(sendBack + " " + action + " " + fileURL + " " +id)
                                 .delaySeconds(5)
                                 .build();
                         sqsClient.sendMessage(sendMsgRequest);

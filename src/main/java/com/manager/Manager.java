@@ -66,7 +66,7 @@ public class Manager{
     	String workersQueueURl = aws.getQueueUrl("ManagerToWorkers");
     	String workersResponseQueueURl = aws.getQueueUrl("WorkersToManager");
         while(!terminated){
-            if(getQueueSize(clientsQueueURl)>0&&!waitingForTermination){
+            if(aws.getQueueSize(clientsQueueURl)>0&&!waitingForTermination){
             	tp.execute(() -> {
             		List<Message> messageLst = aws.receiveMessage(clientsQueueURl);
             		if(!messageLst.isEmpty()) {
@@ -90,8 +90,13 @@ public class Manager{
                     		String line;
                     		List<String> workerMsgs = new ArrayList<>();
                     		while ((line = reader.readLine())!=null) {
+								//create line but replace " " with ","
+								line = line + " " + sender;
+								line = line.replace(" ", ",");
+								
+								line = line.replace("	", ",");
                     			workerTasksCounter++;
-                    			workerMsgs.add(line+" "+sender); 
+                    			workerMsgs.add(line); 
                     			if(taskManagement.isEmpty()||!taskManagement.keySet().contains(sender)) {
                     				taskManagement.put(sender, new HashSet<String>());
                     			}
@@ -102,11 +107,11 @@ public class Manager{
                     		int workersToCreate = workerTasksCounter/n;
                     		if(activeWorkers+workersToCreate>maxWorkers) {
                     			workersToCreate = maxWorkers-activeWorkers;
-                    		}
-                    		
-                    		//aws.runInstanceFromAmiWithScript("image", InstanceType.T2_NANO, workersToCreate, workersToCreate, "script");
-                    		
-                    		for(String wrkmsg:workerMsgs) {
+                    		}	
+							if(workersToCreate>0) {
+								activeWorkers+=workersToCreate;
+								aws.runInstanceFromAmiWithScript("ami-0c8ba19b357bd8ab1", InstanceType.T2_NANO, workersToCreate, workersToCreate, "#cloud-boothook\n#!/bin/bash\njava -jar /home/ec2-user/worker-1.0-SNAPSHOT.jar");
+                    		}for(String wrkmsg:workerMsgs) {
                     			tp.execute(()->aws.sendMessage(workersQueueURl, wrkmsg));
                     			
                     		}
@@ -131,7 +136,7 @@ public class Manager{
             			String operation = msg.body().split(" ")[1];
             			String originalFile = msg.body().split(" ")[2];
             			String client=msg.body().split(" ")[3];
-            			String task = operation+" "+originalFile;
+            			String task = operation+","+originalFile+","+client;
             			aws.deleteMessage(workersResponseQueueURl, msg.receiptHandle());
             					
             				if(taskManagement.get(client).contains(task)) {

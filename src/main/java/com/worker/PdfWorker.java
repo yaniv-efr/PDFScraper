@@ -20,6 +20,7 @@ import java.io.FileWriter;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 import software.amazon.awssdk.services.s3.model.S3Exception;
+import software.amazon.awssdk.regions.Region;
 
 public class PdfWorker {
 
@@ -46,9 +47,9 @@ public class PdfWorker {
         } else {
             String code = String.valueOf(con.getResponseCode());
             System.out.println(code);
-            return "Error: " + code;
+            return "Error:" + code;
         }
-        S3Client s3Client = S3Client.create();
+        S3Client s3Client = S3Client.builder().region(Region.US_EAST_1).build();
         String saveDir = UUID.randomUUID().toString();
 
         try {

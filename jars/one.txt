@@ -1,0 +1,6 @@
+ToImage	http://www.jewishfederations.org/local_includes/downloads/39497.pdf
+ToHTML	http://www.st.tees.org.uk/assets/Downloads/Passover-service.pdf
+ToText	http://www.chabad.org/media/pdf/42/kUgi423322.pdf
+ToImage	http://www.bethelnewton.org/images/Passover_Guide_BOOKLET.pdf
+ToImage	http://scheinerman.net/judaism/pesach/haggadah.pdf
+ToImage	http://www.crcweb.org/Passover/cRcPassoverGuide13_FINAL%20-%20WITHOUT%20ADS.pdf

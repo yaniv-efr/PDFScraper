@@ -89,7 +89,7 @@ public class local {
         String name = upload(args[0], "tomanager");
         
         //send message to sqs
-        String queueUrl = "https://sqs.us-east-1.amazonaws.com/975050155862/local-manager";
+        String queueUrl = "https://sqs.us-east-1.amazonaws.com/975050155862/LocaltoManager";
         // Create the SQS client
         SqsClient sqsClient = SqsClient.builder()
                 .region(Region.US_EAST_1)
@@ -116,13 +116,21 @@ public class local {
                         .build();
                 SendMessageResponse sendMsgResponse = sqsClient.sendMessage(sendMsgRequest);
                 System.out.println("Message sent");
-                // Receive the message from the temporary queue after waiting for 15 seconds
-                ReceiveMessageRequest receiveRequest = ReceiveMessageRequest.builder()
-                        .queueUrl(tempQueueUrl)
-                        .waitTimeSeconds(20)
-                        .maxNumberOfMessages(1)
-                        .build();
-                List<Message> messages = sqsClient.receiveMessage(receiveRequest).messages();
+                List<Message> messages = new ArrayList<>();
+                while(true){
+                        try {
+                                Thread.sleep(5000);
+                        } catch (InterruptedException e) {
+                                e.printStackTrace();
+                        }
+                        
+                        Boolean isMessageReceived = aws.getQueueSize(tempQueueUrl) > 0;
+                        if(isMessageReceived){
+                                System.out.println("Message received from temporary queue");
+                                messages = aws.receiveMessage(tempQueueUrl);
+                                break;
+                        }
+                }
                 if (messages.size() > 0) {
                         System.out.println("Received message from temporary queue: " + messages.get(0).body());
                 } else {
