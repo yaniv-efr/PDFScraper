@@ -32,6 +32,8 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.Executor;
 import java.util.concurrent.Executors;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.Collections;
 
 import com.amazonaws.services.sqs.AmazonSQSVirtualQueuesClientBuilder;
 
@@ -42,7 +44,7 @@ public class Manager{
     private Executor tp;
     private int maxWorkers;
     private int activeWorkers;
-    private HashMap<String, Set<String>> taskManagement;
+    private HashMap<String, List<String>> taskManagement;
     private HashMap<String, String> returnURls;
     int clientCounter;
     
@@ -98,7 +100,7 @@ public class Manager{
                     			workerTasksCounter++;
                     			workerMsgs.add(line); 
                     			if(taskManagement.isEmpty()||!taskManagement.keySet().contains(sender)) {
-                    				taskManagement.put(sender, new HashSet<String>());
+                    				taskManagement.put(sender, Collections.synchronizedList(new ArrayList<String>()));
                     			}
                     			taskManagement.get(sender).add(line);
                     		}
@@ -142,7 +144,7 @@ public class Manager{
             				if(taskManagement.get(client).contains(task)) {
             				File outputFile = new File(client+".html");
             				try {
-								BufferedWriter writer = new BufferedWriter(new FileWriter(outputFile));
+								BufferedWriter writer = new BufferedWriter(new FileWriter(outputFile , true));
 								writer.write("<"+operation+">"+originalFile+" "+proccessedFile);
 								writer.close();
 								taskManagement.get(client).remove(task);
