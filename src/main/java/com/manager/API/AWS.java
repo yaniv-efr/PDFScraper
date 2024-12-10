@@ -44,7 +44,7 @@ public class AWS {
         s3 = S3Client.builder().region(region1).build();
         sqs = SqsClient.builder().region(region1).build();
         ec2 = Ec2Client.builder().region(region1).build();
-        bucketName = "guym-bucket";
+        bucketName = "tomanager";
     }
 
     public static AWS getInstance() {
@@ -71,14 +71,16 @@ public class AWS {
 
     public RunInstancesResponse runInstanceFromAmiWithScript(String ami, InstanceType instanceType, int min, int max, String script) {
         RunInstancesRequest runInstancesRequest = RunInstancesRequest.builder()
-                .imageId(ami)
-                .instanceType(instanceType)
-                .minCount(min)
-                .maxCount(max)
-                .userData(Base64.getEncoder().encodeToString(script.getBytes()))
-                // @ADD security feratures
-                .build();
-
+        .imageId(ami)
+        .instanceType(instanceType)
+        .minCount(min)
+        .maxCount(max)
+        .userData(Base64.getEncoder().encodeToString(script.getBytes()))
+        .iamInstanceProfile(IamInstanceProfileSpecification.builder()
+                .arn("arn:aws:iam::975050155862:instance-profile/LabInstanceProfile") // Replace with your Instance Profile ARN
+                .build())
+        .build();
+        
         return ec2.runInstances(runInstancesRequest);
     }
 
