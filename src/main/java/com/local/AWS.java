@@ -74,6 +74,9 @@ public class AWS {
                 .maxCount(max)
                 .userData(Base64.getEncoder().encodeToString(script.getBytes()))
                 // @ADD security feratures
+                .iamInstanceProfile(IamInstanceProfileSpecification.builder()
+                        .arn("arn:aws:iam::975050155862:instance-profile/LabInstanceProfile") // Replace with your Instance Profile ARN
+                        .build())
                 .build();
 
         return ec2.runInstances(runInstancesRequest);

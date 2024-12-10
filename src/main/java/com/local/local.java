@@ -9,6 +9,8 @@ import software.amazon.awssdk.services.ec2.model.DescribeInstancesResponse;
 import software.amazon.awssdk.services.ec2.model.InstanceStateName;
 import software.amazon.awssdk.services.ec2.model.StartInstancesRequest;
 import software.amazon.awssdk.services.ec2.model.StartInstancesResponse;
+import software.amazon.awssdk.services.ec2.model.Ec2Exception;
+import software.amazon.awssdk.services.ec2.model.InstanceType;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 import software.amazon.awssdk.services.s3.model.S3Exception;
@@ -40,51 +42,22 @@ import java.util.ArrayList;
 import java.io.FileWriter;
 import java.io.IOException;
 
+
 public class local {
         private static AWS aws;
 
     public static void main(String[] args) {
     //checks if ec2 instance is running with ami id ami-0166fe664262f664c using AWS
         aws = AWS.getInstance();
-        List <Instance> instances = aws.getAllInstances();
-        //checks if the instance with same ami id is running
-        String instanceId = "";
-        for (Instance instance : instances) {
-            if (instance.imageId().equals("ami-0453ec754f44f9a4a")) {
-                instanceId = instance.instanceId();
-                System.out.println("Instance found");
-                break;
-            }
-        }
-        if (instanceId.equals("")) {
-            System.out.println("Instance not found");
-            //start the instance with same ami id
-                aws.runInstanceFromAMI("ami-0453ec754f44f9a4a");
-            return;
-        }
-        Ec2Client ec2 = Ec2Client.builder()
-                .region(Region.US_EAST_1)
-                .build();
-        DescribeInstancesRequest request = DescribeInstancesRequest.builder()
-                .instanceIds(instanceId)
-                .build();
-        DescribeInstancesResponse response = ec2.describeInstances(request);
+    List<Instance> instances = aws.getAllInstances();
 
+    // Find instances with the specific AMI ID
+    String amiId = "ami-0453ec754f44f9a4a";
+    List<Instance> matchingInstances = instances.stream()
+            .filter(instance -> instance.imageId().equals(amiId))
+            .filter(instance -> instance.state().name().equals(InstanceStateName.RUNNING) || instance.state().name().equals(InstanceStateName.PENDING))
+            .toList();
 
-        if (response.reservations().size() > 0) {
-            if (response.reservations().get(0).instances().size() > 0) {
-                if (response.reservations().get(0).instances().get(0).state().name().equals(InstanceStateName.RUNNING)) {
-                    System.out.println("Instance is running");
-                } else {
-                    System.out.println("Instance is not running");
-                    StartInstancesRequest startRequest = StartInstancesRequest.builder()
-                            .instanceIds(instanceId)
-                            .build();
-                    StartInstancesResponse startResponse = ec2.startInstances(startRequest);
-                    System.out.println("Instance started");
-                }
-            }
-        }
         //upload args[0] to s3
         String name = upload(args[0], "tomanager");
         
@@ -159,6 +132,13 @@ public class local {
                         .build();
                 sqsClient.deleteQueue(deleteQueueRequest);
                 System.out.println("Deleted temporary queue: " + tempQueueUrl);
+                //send termination message to manager
+                SendMessageRequest sendMsgRequest2 = SendMessageRequest.builder()
+                        .queueUrl(queueUrl)
+                        .messageBody("terminate")
+                        .delaySeconds(5)
+                        .build();
+                SendMessageResponse sendMsgResponse2 = sqsClient.sendMessage(sendMsgRequest2);
 
         } catch (SqsException e) {
                 System.err.println(e.awsErrorDetails().errorMessage());

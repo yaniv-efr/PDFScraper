@@ -1,0 +1,4 @@
+<ToHTML>http://www.st.tees.org.uk/assets/Downloads/Passover-service.pdf    Error:301</ToHTML>
+<ToText>http://www.chabad.org/media/pdf/42/kUgi423322.pdf    1/82e1f44b-d09c-46cd-a2ff-4f51823f6f42.txt</ToText>
+<ToImage>http://www.jewishfederations.org/local_includes/downloads/39497.pdf    Error:301</ToImage>
+<ToImage>http://www.bethelnewton.org/images/Passover_Guide_BOOKLET.pdf    1/80041a7d-b622-4171-bb67-8f5e0341e31b.png</ToImage>

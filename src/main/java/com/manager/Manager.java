@@ -73,9 +73,12 @@ public class Manager{
             		List<Message> messageLst = aws.receiveMessage(clientsQueueURl);
             		if(!messageLst.isEmpty()) {
             			Message msg = messageLst.get(0);
-            			
-            			if(msg.body()=="terminate") {
+
+            			if(msg.body().equals("terminate")) {
             				waitingForTermination=true;
+							if(taskManagement.isEmpty()) {
+								terminated=true;
+							}
             			}else {
                     	String taskPath = msg.body().split(" ")[0];
                     	int n =Integer.parseInt(msg.body().split(" ")[1]);
@@ -107,12 +110,15 @@ public class Manager{
                     		reader.close();
                     		taskFile.delete();
                     		int workersToCreate = workerTasksCounter/n;
+							if(workersToCreate==0) {
+								workersToCreate=1;
+							}
                     		if(activeWorkers+workersToCreate>maxWorkers) {
                     			workersToCreate = maxWorkers-activeWorkers;
                     		}	
 							if(workersToCreate>0) {
 								activeWorkers+=workersToCreate;
-								aws.runInstanceFromAmiWithScript("ami-0c8ba19b357bd8ab1", InstanceType.T2_NANO, workersToCreate, workersToCreate, "#cloud-boothook\n#!/bin/bash\njava -jar /home/ec2-user/worker-1.0-SNAPSHOT.jar");
+								aws.runInstanceFromAmiWithScript("ami-01fea53c76173b9be", InstanceType.T2_NANO, workersToCreate, workersToCreate, "#cloud-boothook\n#!/bin/bash\njava -jar /home/ec2-user/worker-2.0-SNAPSHOT.jar");
                     		}for(String wrkmsg:workerMsgs) {
                     			tp.execute(()->aws.sendMessage(workersQueueURl, wrkmsg));
                     			
@@ -140,12 +146,17 @@ public class Manager{
             			String client=msg.body().split(" ")[3];
             			String task = operation+","+originalFile+","+client;
             			aws.deleteMessage(workersResponseQueueURl, msg.receiptHandle());
-            					
+            				System.out.println("client: "+client + " task: "+task);
             				if(taskManagement.get(client).contains(task)) {
             				File outputFile = new File(client+".html");
             				try {
+								//if proccessed file starts with Error:<number> add the description of the error to the output file
+								if(proccessedFile.startsWith("Error:")) 
+									proccessedFile = proccessedFile + " " + getHttpErrorDescription(Integer.parseInt(proccessedFile.split(":")[1]));
+
 								BufferedWriter writer = new BufferedWriter(new FileWriter(outputFile , true));
-								writer.write("<"+operation+">"+originalFile+" "+proccessedFile);
+								writer.write(operation+":  "+originalFile+"    "+proccessedFile + "<br>");
+								writer.flush();
 								writer.close();
 								taskManagement.get(client).remove(task);
 								
@@ -158,7 +169,6 @@ public class Manager{
 								}
 								if(waitingForTermination&&taskManagement.isEmpty()) {
 									terminated=true;
-									
 								}
 									
 									
@@ -169,21 +179,67 @@ public class Manager{
 								// TODO Auto-generated catch block
 								e.printStackTrace();
 							}
-            					
-            					
             				
             			}
             		}
             	});
             }
         }
-        for(Instance inst:aws.getAllInstances()) {
-			aws.terminateInstance(inst.instanceId());
+		//get all worker instances via ami
+		//terminate all worker instances
+        List<Instance> instances = aws.getAllInstances();
+		List<Instance> matchingInstances = instances.stream()
+            .filter(instance -> instance.imageId().equals("ami-01fea53c76173b9be"))
+            .toList();
+		for(Instance instance:matchingInstances) {
+			if(instance.state().name().toString().equals("running"))
+				aws.terminateInstance(instance.instanceId());
 		}
+		for(Instance instance:aws.getAllInstances()) {
+			if(instance.state().name().toString().equals("running"))
+			{aws.terminateInstance(instance.instanceId());}
+		}
+		return;
     }
+	//System.err.println("Domain expired or host not found: " + e.getMessage());
+    //     return "Error: Domain-expired-or-host-not-found";
+    // } catch (SocketTimeoutException e) {
+    //     System.err.println("Connection timed out: " + e.getMessage());
+    //     return "Error: Connection-timed-out";
+    // } catch (IOException e) {
+    //     System.err.println("IO Error: " + e.getMessage());
+    //     return "Error: IO-Error";
+	//give each error a code
+	public static String getHttpErrorDescription(int code) {
+		switch(code) {
+			case 991:
+				return "Domain-expired-or-host-not-found";
+			case 992:
+				return "Connection-timed-out";
+			case 993:
+				return "IO-Error";
+			case 994:
+				return "invalid-pdf-file";
+			case 300:
+				return "Multiple-Choices";
+			case 301:
+				return "Moved-Permanently";
+			case 400:
+				return "Bad-Request";
+			case 401:
+				return "Unauthorized";
+			case 403:
+				return "Forbidden";
+			case 404:
+				return "Not-Found";
+			default:
+				return "Unknown-Error";
+		}
+	}
 
     public static void main(String[] a){
         Manager manager = new Manager();
         manager.start();
+		
     }
 }
