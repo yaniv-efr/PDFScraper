@@ -1,3 +1,4 @@
+package com.manager;
 import API.AWS;
 import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.ec2.model.Instance;
@@ -31,6 +32,8 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.Executor;
 import java.util.concurrent.Executors;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.Collections;
 
 import com.amazonaws.services.sqs.AmazonSQSVirtualQueuesClientBuilder;
 
@@ -41,11 +44,9 @@ public class Manager{
     private Executor tp;
     private int maxWorkers;
     private int activeWorkers;
-    private HashMap<String, Set<String>> taskManagement;
+    private HashMap<String, List<String>> taskManagement;
     private HashMap<String, String> returnURls;
     int clientCounter;
-    private final SqsClient tsqs;
-    private final SqsClient vsqs;
     
     public Manager(){
         terminated = false;
@@ -57,25 +58,27 @@ public class Manager{
         taskManagement=new HashMap<>();
         returnURls = new HashMap<>();
         clientCounter=0;
-        tsqs = SqsClient.builder().region(Region.US_EAST_1).build();
-        vsqs = AmazonSQSVirtualQueuesClientBuilder.standard().withAmazonSQS(tsqs).build();
     }
     public void start() {
     	
     	aws.createQueue("ManagerToWorkers");
     	aws.createQueue("WorkersToManager");
-    	String clientsQueueURl = getQueueUrl("placeholder");
+    	String clientsQueueURl = aws.getQueueUrl("LocaltoManager.fifo");
     	String workersQueueURl = aws.getQueueUrl("ManagerToWorkers");
     	String workersResponseQueueURl = aws.getQueueUrl("WorkersToManager");
         while(!terminated){
-            if(getQueueSize(clientsQueueURl)>0&&!waitingForTermination){
+            if(aws.getQueueSize(clientsQueueURl)>0&&!waitingForTermination){
             	tp.execute(() -> {
-            		List<Message> messageLst = receiveMessage(clientsQueueURl);
+            		List<Message> messageLst = aws.receiveMessage(clientsQueueURl);
             		if(!messageLst.isEmpty()) {
             			Message msg = messageLst.get(0);
-            			
-            			if(msg.body()=="terminate") {
+
+            			if(msg.body().equals("terminate")) {
+							aws.deleteMessage(clientsQueueURl, msg.receiptHandle());
             				waitingForTermination=true;
+							if(taskManagement.isEmpty()) {
+								terminated=true;
+							}
             			}else {
                     	String taskPath = msg.body().split(" ")[0];
                     	int n =Integer.parseInt(msg.body().split(" ")[1]);
@@ -85,30 +88,38 @@ public class Manager{
                     	returnURls.put(sender, returnURL);
                     	File taskFile = new File(sender);
                     	aws.downloadFileFromS3(taskPath, taskFile);
-                    	deleteMessage(clientsQueueURl, msg.receiptHandle());
+                    	aws.deleteMessage(clientsQueueURl, msg.receiptHandle());
                     	int workerTasksCounter=0;
                     	try {
                     		BufferedReader reader = new BufferedReader(new FileReader(taskFile));
                     		String line;
                     		List<String> workerMsgs = new ArrayList<>();
                     		while ((line = reader.readLine())!=null) {
+								//create line but replace " " with ","
+								line = line + " " + sender;
+								line = line.replace(" ", ",");
+								
+								line = line.replace("	", ",");
                     			workerTasksCounter++;
-                    			workerMsgs.add(line+" "+sender); 
+                    			workerMsgs.add(line); 
                     			if(taskManagement.isEmpty()||!taskManagement.keySet().contains(sender)) {
-                    				taskManagement.put(sender, new HashSet<String>());
+                    				taskManagement.put(sender, Collections.synchronizedList(new ArrayList<String>()));
                     			}
                     			taskManagement.get(sender).add(line);
                     		}
                     		reader.close();
                     		taskFile.delete();
                     		int workersToCreate = workerTasksCounter/n;
+							if(workersToCreate==0) {
+								workersToCreate=1;
+							}
                     		if(activeWorkers+workersToCreate>maxWorkers) {
                     			workersToCreate = maxWorkers-activeWorkers;
-                    		}
-                    		
-                    		//aws.runInstanceFromAmiWithScript("image", InstanceType.T2_NANO, workersToCreate, workersToCreate, "script");
-                    		
-                    		for(String wrkmsg:workerMsgs) {
+                    		}	
+							if(workersToCreate>0) {
+								activeWorkers+=workersToCreate;
+								aws.runInstanceFromAmiWithScript("ami-086afb7d59ea62136", InstanceType.T2_NANO, workersToCreate, workersToCreate, "#cloud-boothook\n#!/bin/bash\njava -jar /home/ec2-user/worker-1.0-SNAPSHOT.jar");
+                    		}for(String wrkmsg:workerMsgs) {
                     			tp.execute(()->aws.sendMessage(workersQueueURl, wrkmsg));
                     			
                     		}
@@ -133,14 +144,19 @@ public class Manager{
             			String operation = msg.body().split(" ")[1];
             			String originalFile = msg.body().split(" ")[2];
             			String client=msg.body().split(" ")[3];
-            			String task = operation+" "+originalFile;
+            			String task = operation+","+originalFile+","+client;
             			aws.deleteMessage(workersResponseQueueURl, msg.receiptHandle());
-            					
+            				System.out.println("client: "+client + " task: "+task);
             				if(taskManagement.get(client).contains(task)) {
             				File outputFile = new File(client+".html");
             				try {
-								BufferedWriter writer = new BufferedWriter(new FileWriter(outputFile));
-								writer.write("<"+operation+">"+originalFile+" "+proccessedFile);
+								//if proccessed file starts with Error:<number> add the description of the error to the output file
+								if(proccessedFile.startsWith("Error:")) 
+									proccessedFile = proccessedFile + " " + getHttpErrorDescription(Integer.parseInt(proccessedFile.split(":")[1]));
+
+								BufferedWriter writer = new BufferedWriter(new FileWriter(outputFile , true));
+								writer.write(operation+":  "+originalFile+"    "+proccessedFile + "<br>");
+								writer.flush();
 								writer.close();
 								taskManagement.get(client).remove(task);
 								
@@ -149,11 +165,10 @@ public class Manager{
 									taskManagement.remove(client);
 									aws.uploadFileToS3(client, outputFile);
 									outputFile.delete();
-									sendMessage(returnURls.get(client), client);
+									aws.sendMessage(returnURls.get(client), client);
 								}
 								if(waitingForTermination&&taskManagement.isEmpty()) {
 									terminated=true;
-									
 								}
 									
 									
@@ -164,72 +179,67 @@ public class Manager{
 								// TODO Auto-generated catch block
 								e.printStackTrace();
 							}
-            					
-            					
             				
             			}
             		}
             	});
             }
         }
-        for(Instance inst:aws.getAllInstances()) {
-			aws.terminateInstance(inst.instanceId());
+		//get all worker instances via ami
+		//terminate all worker instances
+        List<Instance> instances = aws.getAllInstances();
+		List<Instance> matchingInstances = instances.stream()
+            .filter(instance -> instance.imageId().equals("ami-086afb7d59ea62136"))
+            .toList();
+		for(Instance instance:matchingInstances) {
+			if(instance.state().name().toString().equals("running"))
+				aws.terminateInstance(instance.instanceId());
 		}
+		for(Instance instance:aws.getAllInstances()) {
+			if(instance.state().name().toString().equals("running"))
+			{aws.terminateInstance(instance.instanceId());}
+		}
+		return;
     }
+	//System.err.println("Domain expired or host not found: " + e.getMessage());
+    //     return "Error: Domain-expired-or-host-not-found";
+    // } catch (SocketTimeoutException e) {
+    //     System.err.println("Connection timed out: " + e.getMessage());
+    //     return "Error: Connection-timed-out";
+    // } catch (IOException e) {
+    //     System.err.println("IO Error: " + e.getMessage());
+    //     return "Error: IO-Error";
+	//give each error a code
+	public static String getHttpErrorDescription(int code) {
+		switch(code) {
+			case 991:
+				return "Domain-expired-or-host-not-found";
+			case 992:
+				return "Connection-timed-out";
+			case 993:
+				return "IO-Error";
+			case 994:
+				return "invalid-pdf-file";
+			case 300:
+				return "Multiple-Choices";
+			case 301:
+				return "Moved-Permanently";
+			case 400:
+				return "Bad-Request";
+			case 401:
+				return "Unauthorized";
+			case 403:
+				return "Forbidden";
+			case 404:
+				return "Not-Found";
+			default:
+				return "Unknown-Error";
+		}
+	}
 
     public static void main(String[] a){
         Manager manager = new Manager();
         manager.start();
+		
     }
-    public String getQueueUrl(String queueName) {
-        GetQueueUrlRequest getQueueRequest = GetQueueUrlRequest.builder()
-                .queueName(queueName)
-                .build();
-        String queueUrl = null;
-        queueUrl = vsqs.getQueueUrl(getQueueRequest).queueUrl();
-        System.out.println("Queue URL: " + queueUrl);
-        return queueUrl;
-    }
-
-    public int getQueueSize(String queueUrl) {
-        GetQueueAttributesRequest getQueueAttributesRequest = GetQueueAttributesRequest.builder()
-                .queueUrl(queueUrl)
-                .attributeNames(
-                        QueueAttributeName.APPROXIMATE_NUMBER_OF_MESSAGES,
-                        QueueAttributeName.APPROXIMATE_NUMBER_OF_MESSAGES_NOT_VISIBLE,
-                        QueueAttributeName.APPROXIMATE_NUMBER_OF_MESSAGES_DELAYED
-                )
-                .build();
-
-        GetQueueAttributesResponse queueAttributesResponse = null;
-        queueAttributesResponse = vsqs.getQueueAttributes(getQueueAttributesRequest);
-        Map<QueueAttributeName, String> attributes = queueAttributesResponse.attributes();
-
-        return Integer.parseInt(attributes.get(QueueAttributeName.APPROXIMATE_NUMBER_OF_MESSAGES)) +
-                Integer.parseInt(attributes.get(QueueAttributeName.APPROXIMATE_NUMBER_OF_MESSAGES_NOT_VISIBLE)) +
-                Integer.parseInt(attributes.get(QueueAttributeName.APPROXIMATE_NUMBER_OF_MESSAGES_DELAYED));
-    }
-    public List<Message> receiveMessage(String queueURL) {
-    	ReceiveMessageRequest req = ReceiveMessageRequest.builder()
-    			.queueUrl(queueURL)
-    			.maxNumberOfMessages(1)
-    			.build();
-    	ReceiveMessageResponse res = vsqs.receiveMessage(req);
-    	return res.messages();
-    }
-    public void sendMessage(String queueURL,String msg) {
-    	SendMessageRequest req = SendMessageRequest.builder()
-    			.messageBody(msg)
-    			.queueUrl(queueURL)
-    			.build();
-    	vsqs.sendMessage(req);
-    }
-    public void deleteMessage(String queueURL ,String receiptHandle) {
-    	DeleteMessageRequest req = DeleteMessageRequest.builder()
-    			.queueUrl(queueURL)
-    			.receiptHandle(receiptHandle)
-    			.build();
-    	vsqs.deleteMessage(req);
-    }
-    
 }

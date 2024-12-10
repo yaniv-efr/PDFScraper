@@ -1,5 +1,8 @@
-com/local/AWS.class
 com/edu/PdfWorker.class
+com/manager/Manager.class
+API/AWS$Label.class
+com/local/AWS.class
+API/AWS.class
 com/local/local.class
 com/local/AWS$Label.class
 com/edu/Main.class

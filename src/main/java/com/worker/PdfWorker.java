@@ -16,15 +16,62 @@ import javax.imageio.ImageIO;
 import java.awt.image.BufferedImage;
 import java.io.File;
 import java.io.FileWriter;
+import java.io.IOException;
+import java.net.SocketTimeoutException;
+import java.net.UnknownHostException;
+import java.util.UUID;
+
 
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 import software.amazon.awssdk.services.s3.model.S3Exception;
+import software.amazon.awssdk.regions.Region;
+
 
 public class PdfWorker {
 
+    
+
+        //use httpurlconnection to check if the url returns an error
+        //if it does return an error, return the error message
+        //if it does not return an error, download the pdf file
+        //if the pdf file is downloaded, perform the specified action on the first page
+        //if the action is to convert the pdf to an image, render the first page as an image
+        //if the action is to convert the pdf to text, extract text from the first page
+        //if the action is to convert the pdf to html, extract text and create basic html for the first page
+        //upload the completed file to s3
+        //delete the pdf file
+        //return the result
+        
+
     public static String work(String Action, String fileUrl,String id) throws Exception {
-        S3Client s3Client = S3Client.create();
+        HttpURLConnection.setFollowRedirects(false);
+        try {
+        HttpURLConnection con = (HttpURLConnection) new URL(fileUrl).openConnection();
+        con.setRequestMethod("HEAD");
+        con.setConnectTimeout(10000); // Set timeout for connection
+        con.setReadTimeout(10000);    // Set timeout for reading response
+
+        int responseCode = con.getResponseCode();
+
+        if (responseCode == HttpURLConnection.HTTP_OK) {
+            System.out.println("URL is valid and exists");
+        } else {
+            String code = String.valueOf(responseCode);
+            System.out.println("Error Code: " + code);
+            return "Error:" + code;
+        }
+    } catch (UnknownHostException e) {
+        System.err.println("Domain expired or host not found: " + e.getMessage());
+        return "Error:991";
+    } catch (SocketTimeoutException e) {
+        System.err.println("Connection timed out: " + e.getMessage());
+        return "Error:992";
+    } catch (IOException e) {
+        System.err.println("IO Error: " + e.getMessage());
+        return "Error:993";
+    }
+        S3Client s3Client = S3Client.builder().region(Region.US_EAST_1).build();
         String saveDir = UUID.randomUUID().toString();
 
         try {
@@ -47,12 +94,20 @@ public class PdfWorker {
             System.out.println("Downloaded PDF file to: " + saveDir + ".pdf");
         } catch (Exception e) {
             e.printStackTrace();
-            return "Error downloading PDF file";
+            return "Error:994";
         }
-
         File completedFile = null; // To track the generated file for upload
 
-        // Perform the specified action on the first page
+        //check if pdf file is not empty
+        if (new File(saveDir + ".pdf").length() == 0) {
+            return "Error:994";
+        }
+        try (PDDocument document = PDDocument.load(new File(saveDir + ".pdf"))) {
+            // Process the document
+        } catch (IOException e) {
+            System.err.println("Failed to load PDF: " + e.getMessage());
+            return "Error:994";
+        }
         switch (Action) {
             case "ToImage":
                 try {
@@ -124,16 +179,16 @@ public class PdfWorker {
 
             default:
                 System.out.println("Unknown action: " + Action);
-                return "Unknown action";
+                return "error:994";
         }
         //delete the pdf file
         File pdfFile = new File(saveDir + ".pdf");
         pdfFile.delete();
-        String result = id + "/" + completedFile.toPath();
-
+        String result = "none yet";
         // Upload the completed file to S3
         if (completedFile != null && completedFile.exists()) {
             try {
+                result = id + "/" + completedFile.toPath();
                 PutObjectRequest putRequest = PutObjectRequest.builder()
                         .bucket("resultbucket-aws1")
                         .key(id + "/" + completedFile.toPath())
